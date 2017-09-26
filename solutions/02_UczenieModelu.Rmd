@@ -1,0 +1,127 @@
+---
+title: "02.Uczenie modelu"
+output: pdf_document
+---
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, cache = FALSE)
+library(mlr)
+library(tidyverse)
+```
+
+
+
+Mamy już przygotowane w poprzenim kroku zadanie regresji:
+```{r}
+autoMpgTask = readRDS('data/01_task.RDS')
+
+print(autoMpgTask)
+```
+czas na wytrenowanie pierwszych modeli.
+
+
+Przydatne informacje: 
+
+- http://mlr-org.github.io/mlr-tutorial/devel/html/learner/index.html
+- https://mlr-org.github.io/mlr-tutorial/release/html/integrated_learners/index.html
+- http://mlr-org.github.io/mlr-tutorial/devel/html/tune/index.html
+- http://mlr-org.github.io/mlr-tutorial/devel/html/parallelization/index.html
+
+
+## Jaki model wybrać?
+
+
+Sprawdźmy najpierw jakie modele regresyjne (metoda `listLearners`):
+```{r, echo=FALSE,results='asis'}
+listLearners('regr') %>% dplyr::select(class, name, short.name) %>% pander::pandoc.table() 
+```
+
+Sprawdźmy co jest dostępne dla naszego zadania:
+```{r, echo=FALSE,results='asis'}
+listLearners(autoMpgTask) %>% dplyr::select(class, name, short.name) %>% pander::pandoc.table() 
+```
+
+## Trenowanie
+
+Spróbujmy wytrenować proste drzewo losowe (`rpart`) stosując do tego walidację krzyżową:
+
+```{r, echo=FALSE}
+lrn <- makeLearner('regr.rpart')
+
+trainAutoMpg <- function(lrn) resample(lrn, autoMpgTask, cv5, list(rmse, setAggregation(rmse, test.sd)))
+
+results <- lrn %>% trainAutoMpg() 
+results$aggr
+```
+
+## Strojenie parametrów
+
+Parametry naszego algorytmu to (ich wyjaśnienia `?rpart.control`):
+```{r}
+getParamSet('regr.rpart')
+```
+
+Dodamy strojenie parametrów do procesu uczenia:
+
+1. tworzymy `ParamSet` dla parametrów `cp`,
+2. wybieramy strategię strojenia - np. po hipersiatce sprawdzając 20 różnych wartości,
+3. "opakowujemy" nasz algorytm uczący dodając strojenie,
+4. powtarzamy eksperyment dla zadania `autoMpgTask`.
+
+```{r, echo=FALSE}
+rpartLearner <- makeLearner('regr.rpart')
+
+originalParamSet <- getParamSet(rpartLearner)
+ps <- makeParamSet(
+  originalParamSet$pars$cp
+)
+
+rpartTuningLearner <- rpartLearner %>%  
+          makeTuneWrapper(resampling = cv5, 
+                          measures = rmse, 
+                          par.set = ps, 
+                          control = makeTuneControlGrid(resolution = 20))
+results <- rpartTuningLearner%>% trainAutoMpg() 
+results$aggr
+```
+
+Aby przyspieszyć obliczenia możemy zastosować zrównoleglenie przy pomocy pakieru `parallelMap`.
+Zmienna `level` kontroluje poziom, na którym obliczenia będą prowadzone równolegle  - schemat jest następujący:
+
+```{r, eval=FALSE}
+parallelMap::parallelStartMulticore(level = 'mlr.resample')
+doTraining()
+parallelMap::parallelStop()
+```
+
+## Porównanie z modelem liniowym
+
+Model liniowy nie wspiera brakujących danych - można je uzupełniać w trakcie uczenia: http://mlr-org.github.io/mlr-tutorial/devel/html/impute/index.html
+
+```{r, echo=FALSE}
+imputingLm <-  makeImputeWrapper('regr.lm', cols = list(horsepower = imputeMode())) 
+results = imputingLm %>% trainAutoMpg() 
+
+results$aggr
+```
+
+## Porównanie kilku modeli
+
+Z naszych modeli możemy utworzyć benchmark:
+
+http://mlr-org.github.io/mlr-tutorial/devel/html/benchmark_experiments/index.html
+
+```{r, echo=FALSE}
+bmr = benchmark(list(imputingLm, rpartTuningLearner), autoMpgTask, cv5, measures = list(rmse, setAggregation(rmse, test.sd)))
+saveRDS(bmr,'data/02_benchmark.RDS')
+
+bmr
+```
+
+Dodatkowe ćwiczenia:
+
+1. jakie inne metody uzupełnienia danych możemy zastosować?
+2. co gdy mamy dwa benchmarki, które chcielibyśmy połączyć?
+3. czy zastosowanie [PCA](https://mlr-org.github.io/mlr-tutorial/release/html/preproc/index.html#preprocessing-with-makepreprocwrappercaret) poprawia wyniki naszego modelu?
+4. jak wpłynie na nasze modele [bagging](https://mlr-org.github.io/mlr-tutorial/devel/html/bagging/index.html)?
+5. czy losowe przeszukiwanie przestrzeni parametrów lub metoda `irace` prowadzą do lepszych wyników?

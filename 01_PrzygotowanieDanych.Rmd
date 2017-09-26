@@ -1,0 +1,124 @@
+---
+title: "01.Przygotowanie danych"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, cache = TRUE)
+library(mlr)
+library(tidyverse)
+set.seed(123)
+```
+
+
+W ramach warsztatu będziemy zajmować się modelowaniem spalania samochodów: 
+
+https://archive.ics.uci.edu/ml/datasets/Auto+MPG
+
+Przydatne informacje: 
+
+- http://mlr-org.github.io/mlr-tutorial/devel/html/task/index.html
+- http://mlr-org.github.io/mlr-tutorial/devel/html/preproc/index.html
+- https://www.rdocumentation.org/packages/mlr/versions/2.10/topics/makeClassifTask
+
+## Wczytanie pliku CSV
+
+W pliku mamy następujące kolumny:
+
+1. mpg: continuous (nasza zmienna celu)
+2. cylinders: multi-valued discrete 
+3. displacement: continuous 
+4. horsepower: continuous 
+5. weight: continuous 
+6. acceleration: continuous 
+7. model year: multi-valued discrete 
+8. origin: multi-valued discrete 
+9. car name: string (identyfikator)
+
+
+
+```{r}
+autoMpgDf <- readr::read_csv('data/auto-mpg.data.csv',na = '?') %>%
+        dplyr::mutate(car_name = factor(car_name)
+                      , origin = factor(origin))
+summary(autoMpgDf)
+```
+
+```{r, fig.width = 10, fig.height = 10}
+GGally::ggpairs(autoMpgDf %>% dplyr::select(-car_name))
+```
+
+## Utworzenie zadania regresji
+
+Naszą zmienną celu jest `mpg`:
+
+```{r, include=FALSE}
+autoMpgTask <- NA ##TODO
+```
+
+```{r}
+print(autoMpgTask)
+```
+
+## Przekształcanie atrybutów
+
+Do wykonania mamy następujące kroki:
+
+1. uzupełnienie brakujących danych,
+2. wyrzucenie kolumny `car_name` (jest identyfikatorem wiersza),
+3. zakodowanie wartości kolumny `origin` przy pomocy zmiennych wskaźnikowych ("one-hot-encoding"/"1-of-n"),
+4. normalizacja (przez standaryzację) wartości parametrów.
+
+```{r, include = FALSE}
+autoMpgImputed <- NA ##TODO
+
+autoMpgPreprocessedTask <- NA ##TODO
+
+```
+
+W efekcie otrzymamy zadanie:
+```{r}
+autoMpgPreprocessedTask
+```
+
+Wykres zadania po przeprocesowaniu:
+```{r, fig.width = 10, fig.height = 10}
+GGally::ggpairs(autoMpgPreprocessedTask %>% getTaskData())
+```
+
+
+Zapisujemy nasze zadanie regresji na później:
+```{r}
+#saveRDS(autoMpgPreprocessedTask,'data/01_task.RDS')
+```
+
+## Selekcja atrybutów
+
+Potrzebna nam jest metoda odpowiednia dla naszego zadania:
+```{r}
+listFilterMethods(tasks=TRUE, features = TRUE) %>% 
+  dplyr::filter(task.regr==TRUE,  feature.ordered==TRUE, feature.numerics==TRUE) %>% 
+  dplyr::select(id, desc) %>% pander::pandoc.table()
+```
+
+Przygotujmy teraz wykresy istotności cech dla kilku miar:
+
+```{r, include=FALSE}
+featureImportance <- NA ##TODO
+```
+
+```{r, fig.width = 6, fig.height = 3}
+plotFilterValues(featureImportance) 
+```
+
+Wyniki selekcji można też obejrzeć bardziej interaktywnie:
+```{r, eval=FALSE}
+plotFilterValuesGGVIS(featureImportance)
+```
+
+
+Dodatkowe ćwiczenia:
+
+1. czy w naszym zbiorze danych są elementy odstające? jak można sobie radzić w takich przypadkach korzystając z MLR?
+2. w jaki sposób można "wyrzucić" atrybuty z zadania?
+

@@ -1,0 +1,23 @@
+---
+title: "Iris"
+output: html_notebook
+---
+
+## Klasyfikacja irysów
+```{r}
+library(mlr); library(tidyverse); data(iris)
+
+parallelMap::parallelStartMulticore(level = 'mlr.resample')
+results = makeLearner("classif.knn") %>%  
+          makeTuneWrapper(resampling = cv3, 
+                          measures = acc, 
+                          par.set = makeParamSet(makeIntegerParam("k", lower=1, upper=20)), 
+                          control = makeTuneControlGrid()) %>%
+          resample(task = makeClassifTask(data = iris, target = "Species"), 
+                   resampling = cv3, 
+                   measures = list(acc, setAggregation(acc, test.sd)))
+parallelMap::parallelStop()
+calculateConfusionMatrix(results$pred)
+```
+
+

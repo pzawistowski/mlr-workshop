@@ -1,0 +1,98 @@
+---
+title: "04.Wizualizacje"
+output: pdf_document
+---
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, cache = FALSE)
+library(mlr)
+library(tidyverse)
+set.seed(123)
+```
+
+Przydatne linki:
+
+- https://mlr-org.github.io/mlr-tutorial/release/html/visualization/index.html#available-generation-and-plotting-functions
+
+## Wizualizacje dla zadania `autoMpg`
+
+
+### Wpływ poszczególnych zmiennych na model 
+
+```{r}
+autoMpgTask = readRDS('data/01_task.RDS')
+
+pd = generatePartialDependenceData(train('regr.rpart', autoMpgTask), autoMpgTask)
+plotPartialDependence(pd, data = getTaskData(autoMpgTask))
+
+```
+
+### Wpływ wartości hiperparametrów na model
+
+```{r}
+
+rpartLearner <- makeLearner('regr.rpart')
+
+originalParamSet <- getParamSet(rpartLearner)
+ps <- makeParamSet(
+  originalParamSet$pars$cp,
+  originalParamSet$pars$maxdepth
+)
+
+data  <- tuneParams(rpartLearner, 
+                    task = autoMpgTask, 
+                    control = makeTuneControlGrid(resolution = 5),
+                    measures = setAggregation(rmse, test.mean), 
+                    resampling = makeResampleDesc("Holdout"), 
+                    par.set = ps, show.info = FALSE) %>%
+                    generateHyperParsEffectData()
+
+plotHyperParsEffect(data, x = "cp", y = "maxdepth", z = "rmse.test.mean", plot.type = "heatmap")
+```
+
+## Wizualizacje dla zadania `sonar`
+
+```{r}
+parallelMap::parallelStartMulticore(level = 'mlr.resample')
+lrn <- makeLearner("classif.lda", predict.type = "prob")
+results =  lrn %>%  resample(task = sonar.task,
+                   resampling = cv3, 
+                   measures = list(acc, setAggregation(acc, test.sd)))
+parallelMap::parallelStop()
+```
+
+### Krzywa ROC
+
+```{r}
+df = generateThreshVsPerfData(results, measures = list(fpr, tpr, acc))
+
+plotROCCurves(df) + theme_bw()
+```
+
+### Miary jakości, a wartość progu
+
+```{r}
+plotThreshVsPerf(df)
+```
+
+
+### Kalibracja klasyfikatora
+
+```{r}
+cal = generateCalibrationData(results, groups = 10)
+plotCalibration(cal)
+```
+
+### Krzywe uczenia
+
+```{r}
+r = generateLearningCurveData(
+  learners = lrn,
+  task = sonar.task,
+  percs = seq(0.1, 1, by = 0.05),
+  measures = list(acc, tp, fp),
+  resampling = makeResampleDesc(method = "CV", iters = 5),
+  show.info = FALSE)
+plotLearningCurve(r)
+```
+

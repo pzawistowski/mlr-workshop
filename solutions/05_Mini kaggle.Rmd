@@ -1,0 +1,111 @@
+---
+title: "05.Mini kaggle"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, cache = TRUE)
+library(mlr)
+library(tidyverse)
+
+set.seed(123)
+
+teamName <- 'AwesomeTeam'
+```
+
+
+## Zadanie
+
+Na podstawie atrybutów opisujących ubrania w sklepie odzieżowym należy przewidzieć 
+ich przyszłą sprzedaż - binarny atrybut `Recommendation`.
+
+```{r}
+
+## Tworzymy zadanie na podstawie pliku csv
+readSalesTask <- function(filePath){
+  df <- readr::read_csv(filePath,na = "NA") %>%  mutate_if(is.character, as.factor)
+  makeClassifTask(data = df, target = "Recommendation")
+}
+
+salesTask <- readSalesTask('data/dress-sales.train.csv')
+salesTask
+```
+
+## Przygotowanie danych
+
+```{r}
+## Uzupełniamy brakujące dane
+salesTaskImputation <- salesTask %>% impute(classes = list(factor = imputeConstant('Unknown')))
+
+## Dodajemy zmienne wskaźnikowe
+salesTaskPreprocessed <- salesTaskImputation$task %>% createDummyFeatures() 
+```
+
+
+
+## Uczenie
+
+```{r}
+## Klasyfikator k-NN ze strojeniem parametrów
+knnLrn <- makeLearner("classif.knn") %>%  
+          makeTuneWrapper(resampling = cv3, 
+                          measures = acc, 
+                          par.set = makeParamSet(makeIntegerParam("k", lower=1, upper=5)), 
+                          control = makeTuneControlGrid())
+## Regresja logistyczna
+logregLrn <- makeLearner("classif.logreg")
+
+## Lista metod, które porównamy
+learners <- list(knnLrn, logregLrn)
+
+parallelMap::parallelStartMulticore(level = 'mlr.resample')
+benchmarkResults <- benchmark(learners, list(salesTaskPreprocessed), 
+                   resampling = cv3, 
+                   measures = list(acc, setAggregation(acc, test.sd)))
+parallelMap::parallelStop()
+
+getBMRAggrPerformances(benchmarkResults, as.df = T)
+```
+
+## Finalny model
+
+```{r}
+finalModel <-train(logregLrn, salesTaskPreprocessed)
+```
+
+```{r, echo=FALSE}
+submit <- function(predictions){
+  submissionFile <- paste(teamName, '.csv',sep='')
+  write.csv(getPredictionResponse(predictions), submissionFile)
+  library(mailR)
+   send.mail(from = "team.whyr.mlr@gmail.com",
+            to = "whyr.mlr@gmail.com",
+            subject = paste("Mini kaggle submission:", teamName),
+            body = "Some message",
+            attach.files = submissionFile,
+            smtp = list(host.name = "smtp.gmail.com", port = 587, tls = TRUE, user.name="whyr.mlr", passwd="whyr.mlr123"),
+            authenticate = T,
+            send = T)
+}
+```
+
+```{r, eval=FALSE}
+## Mając gotowy model dokonujemy predykcji testowych i je wysyłamy mailem
+
+salesSubmissionTask <- readSalesTask('data/dress-sales.submission.csv') %>%         
+                          reimpute(desc = salesTaskImputation$desc) %>%
+                          createDummyFeatures()
+
+predictions <- predict(finalModel, salesSubmissionTask)
+
+submit(predictions)
+```
+
+## Kilka pomysłów 
+
+1. Dostrojenie parametrów regresji logistycznej.
+2. Zastosowanie xgboost (`regr.xgboost`).
+3. Inne metody uzupełniania brakujących danych.
+4. Zastosowanie normalizacji.
+5. [Bagging](https://mlr-org.github.io/mlr-tutorial/release/html/wrapper/index.html#example-bagging-wrapper) któregoś z modeli.
+6. ...
